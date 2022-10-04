@@ -26,19 +26,12 @@ jobs:
       id: filename
 
     - name: Create tag name
-      run: echo "::set-output name=date::`date +%Y.%m.%d`"
+      run: echo "::set-output name=date::`date +%Y.%m.%d%H`"
       id: tagname
-
-    - uses: actions/upload-artifact@v3
-      with:
-        name: ${{ steps.filename.outputs.json }}
-        path: github_repos.json
-
-    - run: ls ${{ github.workspace }}
 
     - name: Create Release
       uses: ncipollo/release-action@v1.11.0
       with:
-        artifacts: ${{ github.workspace }}/.artifacts/${{ steps.filename.outputs.json }}
+        artifacts: github_repos.json
         name: ${{ steps.filename.outputs.json }}
         tag: ${{ steps.tagname.outputs.date }}
