@@ -361,7 +361,7 @@ func main() {
 		}
 
 		client := getClient(githubToken)
-		githubRepos := getGithubReposFromMarkdownRepos(client, markdownRepos[0:10])
+		githubRepos := getGithubReposFromMarkdownRepos(client, markdownRepos)
 
 		reposAsBytes, err := reposToJson(githubRepos)
 		if err != nil {
