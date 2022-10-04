@@ -20,14 +20,18 @@ jobs:
       with:
         go-version: 1.19.1
     - run: go run main.go --update
-    - run: echo "::set-output name=artifact::`date +%Y-%m-%d`.json"
+
+    - name: Create file name
+      run: echo "::set-output name=json::`date +%Y-%m-%d`.json"
+      id: filename
+
     - uses: actions/upload-artifact@v3
       with:
-        name: ${{ steps.generate-name.outputs.artifact }}
+        name: ${{ steps.filename.outputs.json }}
         path: github_repos.json
 
     - name: Create Release
       uses: ncipollo/release-action@v1.11.0
       with:
-        artifacts: ${{ steps.generate-name.outputs.artifact }}
-        name: ${{ steps.generate-name.outputs.artifact }}
+        artifacts: ${{ steps.filename.outputs.json }}
+        name: ${{ steps.filename.outputs.json }}
