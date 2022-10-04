@@ -25,6 +25,10 @@ jobs:
       run: echo "::set-output name=json::`date +%Y-%m-%d`.json"
       id: filename
 
+    - name: Create tag name
+      run: echo "::set-output name=date::`date +%Y.%m.%d`"
+      id: tagname
+
     - uses: actions/upload-artifact@v3
       with:
         name: ${{ steps.filename.outputs.json }}
@@ -35,3 +39,4 @@ jobs:
       with:
         artifacts: ${{ steps.filename.outputs.json }}
         name: ${{ steps.filename.outputs.json }}
+        tag: ${{ steps.tagname.outputs.date }}
