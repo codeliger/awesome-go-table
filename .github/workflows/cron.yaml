@@ -34,6 +34,8 @@ jobs:
         name: ${{ steps.filename.outputs.json }}
         path: github_repos.json
 
+    - run: ls ${{ github.workspace }}
+
     - name: Create Release
       uses: ncipollo/release-action@v1.11.0
       with:
