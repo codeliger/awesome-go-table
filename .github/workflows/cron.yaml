@@ -37,6 +37,6 @@ jobs:
     - name: Create Release
       uses: ncipollo/release-action@v1.11.0
       with:
-        artifacts: ${{ steps.filename.outputs.json }}
+        artifacts: ${{ github.workspace }}.artifacts/${{ steps.filename.outputs.json }}
         name: ${{ steps.filename.outputs.json }}
         tag: ${{ steps.tagname.outputs.date }}
