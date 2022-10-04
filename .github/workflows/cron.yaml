@@ -19,11 +19,8 @@ jobs:
       uses: actions/setup-go@v2
       with:
         go-version: 1.19.1
-      run: go run main.go --update
-
-    - name: generate artifact name
-      run: echo "::set-output name=artifact::`date +%Y-%m-%d`.json"
-
+    - run: go run main.go --update
+    - run: echo "::set-output name=artifact::`date +%Y-%m-%d`.json"
     - uses: actions/upload-artifact@v3
       with:
         name: ${{ steps.generate-name.outputs.artifact }}
