@@ -154,7 +154,18 @@ func parseMarkdownRepos(githubToken string) ([]MarkdownRepo, error) {
 		}
 	}
 
-	return markdownRepos, nil
+	filteredRepos := []MarkdownRepo{}
+
+	for _, repo := range markdownRepos {
+		if repo.GithubPagesName == "" {
+			filteredRepos = append(filteredRepos, repo)
+		} else {
+			fmt.Printf("Skipping custom domain repo %+v\n", repo)
+
+		}
+	}
+
+	return filteredRepos, nil
 }
 
 func getGithubReposFromMarkdownRepos(client *github.Client, markdownRepos []MarkdownRepo) []GithubRepo {
@@ -183,6 +194,8 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 		markdownRepoChan <- item
 	}
 
+	fmt.Println("markdown repo length", len(markdownRepos))
+
 	rateLimit := &atomic.Int32{}
 
 	limits, _, err := client.RateLimits(context.Background())
@@ -194,7 +207,7 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 
 	wg := sync.WaitGroup{}
 
-	const THREADS = 1
+	const THREADS = 4
 
 	for i := 0; i < THREADS; i++ {
 		go getRepoDataFromGithub(client, rateLimit, &wg, markdownRepoChan, githubRepoChan)
@@ -207,31 +220,30 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 	}
 
 	counter := 0
+	lastCount := len(githubRepoWithContributors)
 	for len(githubRepoWithContributors) != len(markdownRepos) {
-		fmt.Printf("Waiting for all go routines to finish %d/%d [limit:%d]\n", len(githubRepoWithContributors), len(markdownRepos), limits.Core.Remaining)
+		if lastCount != len(githubRepoWithContributors) {
+			fmt.Printf("Waiting for all go routines to finish %d/%d [limit:%d]\n", len(githubRepoWithContributors), len(markdownRepos), rateLimit.Load())
+		}
 		time.Sleep(time.Second)
 		counter++
 		// fetch rate limit every 5 seconds
 		if counter%5 == 0 {
-			fmt.Println("Fetching rate limit")
 			limits, _, err := client.RateLimits(context.Background())
 			if err != nil {
-				fmt.Println(err)
+				fmt.Println("failed to get ratelimits setting rate limit to 0", err)
+				rateLimit.Store(0)
+			} else {
+				rateLimit.Store(int32(limits.Core.Remaining))
 			}
-			if limits.Core.Remaining == 0 {
-				fmt.Printf("Rate limit reached sleeping for %f seconds\n", time.Until(limits.Core.Reset.Time).Seconds())
-				time.Sleep((time.Until(limits.Core.Reset.Time) + 5) * time.Second)
+			fmt.Println("New rate limit", rateLimit.Load())
 
-				limits, _, err = client.RateLimits(context.Background())
-				if err != nil {
-					fmt.Println(err)
-				}
+			if rateLimit.Load() < 1 {
+				fmt.Println("Rate limit reached, sleeping for", time.Until(limits.Core.Reset.Time).Seconds())
+				time.Sleep(time.Until(limits.Core.Reset.Time) + (time.Second * 5))
 			}
-			rateLimit.Store(int32(limits.Core.Remaining))
 		}
 	}
-
-	fmt.Println("Waiting for all go routines to finish", len(githubRepoWithContributors), len(markdownRepos))
 
 	close(markdownRepoChan)
 	close(githubRepoChan)
@@ -249,37 +261,29 @@ func getClient(authToken string) *github.Client {
 
 func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *sync.WaitGroup, markdownRepoChan chan MarkdownRepo, githubRepoChan chan GithubRepo) {
 	for markdownRepo := range markdownRepoChan {
-		for rateLimit.Load() < 1 {
+		for rateLimit.Add(-1) < 1 {
 			markdownRepoChan <- markdownRepo
 			fmt.Println("RepoContributors: waiting for rate limit to reset")
 			time.Sleep(1 * time.Second)
 			continue
 		}
 
-		rateLimit.Add(-1)
-
-		if markdownRepo.GithubPagesName != "" {
-			fmt.Println("skipping", markdownRepo.GithubPagesName, "until a lookup solution is found")
-			continue
-		}
-
-		fmt.Println("getting REPO", markdownRepo.OwnerName, markdownRepo.RepoName)
-		repo, resp, err := client.Repositories.Get(context.Background(), markdownRepo.OwnerName, markdownRepo.RepoName)
+		repo, _, err := client.Repositories.Get(context.Background(), markdownRepo.OwnerName, markdownRepo.RepoName)
 		if err != nil {
 			if _, ok := err.(*github.RateLimitError); ok {
+				fmt.Println("repo function returned ratelimit error")
+				rateLimit.Store(0)
 				markdownRepoChan <- markdownRepo
 				continue
 			}
-			fmt.Println("error", err)
+
+			fmt.Println("error when getting repo", err)
 			githubRepoChan <- GithubRepo{
 				MarkdownRepo: markdownRepo,
 				Error:        err,
 			}
-			wg.Done()
-			return
+			continue
 		}
-
-		rateLimit.Store(int32(resp.Rate.Remaining))
 
 		githubRepo := GithubRepo{
 			MarkdownRepo: markdownRepo,
@@ -295,30 +299,33 @@ func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *s
 
 func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *sync.WaitGroup, githubRepoChan chan GithubRepo, githubRepoWithContributorsChan chan GithubRepo) {
 	for githubRepo := range githubRepoChan {
-		for rateLimit.Load() < 1 {
+		if githubRepo.Error != nil {
+			githubRepoWithContributorsChan <- githubRepo
+			continue
+		}
+
+		for rateLimit.Add(-1) < 1 {
 			fmt.Println("RepoContributors: waiting for rate limit to reset")
 			githubRepoChan <- githubRepo
 			time.Sleep(1 * time.Second)
 			continue
 		}
 
-		rateLimit.Add(-1)
-
-		fmt.Println("getting CONTRIB contributers", githubRepo.OwnerName, githubRepo.RepoName)
-		contributers, resp, err := client.Repositories.ListContributors(context.Background(), githubRepo.OwnerName, githubRepo.RepoName, nil)
+		contributers, _, err := client.Repositories.ListContributors(context.Background(), githubRepo.OwnerName, githubRepo.RepoName, nil)
 
 		if err != nil {
 			if _, ok := err.(*github.RateLimitError); ok {
+				fmt.Println("contrib function returned ratelimit error")
+				rateLimit.Store(0)
 				githubRepoChan <- githubRepo
 				continue
 			}
+
+			fmt.Println("error when getting contributers", err)
 			githubRepo.Error = err
 			githubRepoWithContributorsChan <- githubRepo
-			wg.Done()
-			return
+			continue
 		}
-
-		rateLimit.Store(int32(resp.Rate.Remaining))
 
 		contributerMap := map[string]int{}
 
@@ -355,14 +362,15 @@ func parseGithubsURLRegex(text string) [][][]byte {
 
 func main() {
 	getRepos := flag.Bool("update", false, "fetch repos from github and save it as json")
+	testRateLimit := flag.Bool("test", false, "test rate limit")
 	flag.Parse()
 
-	if *getRepos {
-		githubToken := os.Getenv("GITHUB_TOKEN")
-		if githubToken == "" {
-			panic(errors.New("GITHUB_TOKEN is not set"))
-		}
+	githubToken := os.Getenv("GITHUB_TOKEN")
+	if githubToken == "" {
+		panic(errors.New("GITHUB_TOKEN is not set"))
+	}
 
+	if *getRepos {
 		markdownRepos, err := parseMarkdownRepos(githubToken)
 		if err != nil {
 			panic(err)
@@ -380,5 +388,17 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
+	}
+
+	if *testRateLimit {
+		client := getClient(githubToken)
+		limits, resp, err := client.RateLimits(context.Background())
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		fmt.Println(limits)
+		fmt.Println(resp)
+		fmt.Println(err)
 	}
 }
