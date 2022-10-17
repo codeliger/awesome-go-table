@@ -38,8 +38,15 @@ type MarkdownRepo struct {
 type GithubRepo struct {
 	MarkdownRepo
 	Stars            int
+	Watchers         int
+	CreatedAt        time.Time
+	PushedAt         time.Time
 	LastCommit       time.Time
+	Forks            int
+	OpenIssues       int
 	ContributerCount int
+	License          string
+	Archived         bool
 	Contributers     map[string]int
 	Error            error `json:"omitempty"`
 }
@@ -207,7 +214,7 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 
 	wg := sync.WaitGroup{}
 
-	const THREADS = 4
+	const THREADS = 1
 
 	for i := 0; i < THREADS; i++ {
 		go getRepoDataFromGithub(client, rateLimit, &wg, markdownRepoChan, githubRepoChan)
@@ -226,23 +233,29 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 			fmt.Printf("Waiting for all go routines to finish %d/%d [limit:%d]\n", len(githubRepoWithContributors), len(markdownRepos), rateLimit.Load())
 		}
 		time.Sleep(time.Second)
-		counter++
 		// fetch rate limit every 5 seconds
 		if counter%5 == 0 {
 			limits, _, err := client.RateLimits(context.Background())
 			if err != nil {
-				fmt.Println("failed to get ratelimits setting rate limit to 0", err)
 				rateLimit.Store(0)
+				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
+					fmt.Println("Rate limit reached sleeping until reset time", time.Until(rateLimitErr.Rate.Reset.Time).Seconds())
+					time.Sleep(time.Until(rateLimitErr.Rate.Reset.Time))
+				} else {
+					fmt.Println("unknown error when retrieving ratelimits sleeping 5 second", err)
+					time.Sleep(5 * time.Second)
+				}
+				continue
 			} else {
 				rateLimit.Store(int32(limits.Core.Remaining))
 			}
-			fmt.Println("New rate limit", rateLimit.Load())
 
 			if rateLimit.Load() < 1 {
 				fmt.Println("Rate limit reached, sleeping for", time.Until(limits.Core.Reset.Time).Seconds())
 				time.Sleep(time.Until(limits.Core.Reset.Time) + (time.Second * 5))
 			}
 		}
+		counter++
 	}
 
 	close(markdownRepoChan)
@@ -289,6 +302,13 @@ func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *s
 			MarkdownRepo: markdownRepo,
 			Stars:        repo.GetStargazersCount(),
 			LastCommit:   repo.GetUpdatedAt().Time,
+			Watchers:     repo.GetWatchersCount(),
+			Forks:        repo.GetForksCount(),
+			CreatedAt:    repo.GetCreatedAt().Time,
+			PushedAt:     repo.GetPushedAt().Time,
+			OpenIssues:   repo.GetOpenIssuesCount(),
+			License:      repo.GetLicense().GetName(),
+			Archived:     repo.GetArchived(),
 		}
 
 		githubRepoChan <- githubRepo
