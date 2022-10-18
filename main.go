@@ -222,22 +222,18 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 	}
 
 	for i := 0; i < THREADS; i++ {
-		go getContributorsFromGithub(client, rateLimit, &wg, githubRepoChan, githubRepoWithContributors)
+		go getContributorsFromGithub(client, rateLimit, &wg, githubRepoChan, githubRepoWithContributors, markdownRepoChan)
 		wg.Add(1)
 	}
 
 	counter := 0
-	lastCount := len(githubRepoWithContributors)
-
 	fmt.Println("Initial sleep time", 30)
 	time.Sleep(time.Second * 30)
 
-	for len(githubRepoWithContributors) != len(markdownRepos) {
+	for len(githubRepoChan) > 0 || len(markdownRepoChan) > 0 {
 		// fetch rate limit every 5 seconds
-		if counter%10 == 0 {
-			if lastCount != len(githubRepoWithContributors) {
-				fmt.Printf("Waiting for all go routines to finish %d/%d [limit:%d]\n", len(githubRepoWithContributors), len(markdownRepos), rateLimit.Load())
-			}
+		if counter%10 == 0 && counter != 0 {
+			fmt.Printf("Waiting for all go routines to finish %d/%d [limit:%d]\n", len(githubRepoWithContributors), len(markdownRepos), rateLimit.Load())
 
 			fmt.Println("fetching ratelimit")
 			limits, _, err := client.RateLimits(context.Background())
@@ -264,10 +260,6 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 		time.Sleep(time.Second)
 		counter++
 	}
-
-	close(markdownRepoChan)
-	close(githubRepoChan)
-	close(githubRepoWithContributors)
 }
 
 func getClient(authToken string) *github.Client {
@@ -280,89 +272,107 @@ func getClient(authToken string) *github.Client {
 }
 
 func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *sync.WaitGroup, markdownRepoChan chan MarkdownRepo, githubRepoChan chan GithubRepo) {
-	for markdownRepo := range markdownRepoChan {
-		for rateLimit.Add(-1) < 1 {
-			markdownRepoChan <- markdownRepo
+	for {
+		for rateLimit.Load()-1 < 1 {
 			fmt.Println("RepoContributors: waiting for rate limit to reset")
 			time.Sleep(1 * time.Second)
 			continue
 		}
 
-		repo, _, err := client.Repositories.Get(context.Background(), markdownRepo.OwnerName, markdownRepo.RepoName)
-		if err != nil {
-			if _, ok := err.(*github.RateLimitError); ok {
-				fmt.Println("repo function returned ratelimit error")
-				rateLimit.Store(0)
-				markdownRepoChan <- markdownRepo
+		rateLimit.Add(-1)
+
+		select {
+		case markdownRepo := <-markdownRepoChan:
+			repo, _, err := client.Repositories.Get(context.Background(), markdownRepo.OwnerName, markdownRepo.RepoName)
+			if err != nil {
+				if _, ok := err.(*github.RateLimitError); ok {
+					fmt.Println("repo function returned ratelimit error")
+					rateLimit.Store(0)
+					markdownRepoChan <- markdownRepo
+				}
+
+				fmt.Println("error when getting repo", err)
+				githubRepoChan <- GithubRepo{
+					MarkdownRepo: markdownRepo,
+					Error:        err,
+				}
 				continue
 			}
 
-			fmt.Println("error when getting repo", err)
-			githubRepoChan <- GithubRepo{
+			githubRepo := GithubRepo{
 				MarkdownRepo: markdownRepo,
-				Error:        err,
+				Stars:        repo.GetStargazersCount(),
+				LastCommit:   repo.GetUpdatedAt().Time,
+				Watchers:     repo.GetWatchersCount(),
+				Forks:        repo.GetForksCount(),
+				CreatedAt:    repo.GetCreatedAt().Time,
+				PushedAt:     repo.GetPushedAt().Time,
+				OpenIssues:   repo.GetOpenIssuesCount(),
+				License:      repo.GetLicense().GetName(),
+				Archived:     repo.GetArchived(),
 			}
-			continue
-		}
 
-		githubRepo := GithubRepo{
-			MarkdownRepo: markdownRepo,
-			Stars:        repo.GetStargazersCount(),
-			LastCommit:   repo.GetUpdatedAt().Time,
-			Watchers:     repo.GetWatchersCount(),
-			Forks:        repo.GetForksCount(),
-			CreatedAt:    repo.GetCreatedAt().Time,
-			PushedAt:     repo.GetPushedAt().Time,
-			OpenIssues:   repo.GetOpenIssuesCount(),
-			License:      repo.GetLicense().GetName(),
-			Archived:     repo.GetArchived(),
-		}
+			githubRepoChan <- githubRepo
 
-		githubRepoChan <- githubRepo
+		default:
+			close(markdownRepoChan)
+			wg.Done()
+		}
 	}
 
-	wg.Done()
 }
 
-func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *sync.WaitGroup, githubRepoChan chan GithubRepo, githubRepoWithContributorsChan chan GithubRepo) {
-	for githubRepo := range githubRepoChan {
-		if githubRepo.Error != nil {
-			githubRepoWithContributorsChan <- githubRepo
-			continue
-		}
+func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *sync.WaitGroup, githubRepoChan chan GithubRepo, githubRepoWithContributorsChan chan GithubRepo, markdownRepoChan chan MarkdownRepo) {
 
-		for rateLimit.Add(-1) < 1 {
+	for {
+		for rateLimit.Load()-1 < 1 {
 			fmt.Println("RepoContributors: waiting for rate limit to reset")
-			githubRepoChan <- githubRepo
 			time.Sleep(1 * time.Second)
 			continue
 		}
 
-		contributers, _, err := client.Repositories.ListContributors(context.Background(), githubRepo.OwnerName, githubRepo.RepoName, nil)
+		rateLimit.Add(-1)
 
-		if err != nil {
-			if _, ok := err.(*github.RateLimitError); ok {
-				fmt.Println("contrib function returned ratelimit error")
-				rateLimit.Store(0)
-				githubRepoChan <- githubRepo
+		select {
+		case githubRepo := <-githubRepoChan:
+			if githubRepo.Error != nil {
+				githubRepoWithContributorsChan <- githubRepo
 				continue
 			}
 
-			fmt.Println("error when getting contributers", err)
-			githubRepo.Error = err
+			contributers, _, err := client.Repositories.ListContributors(context.Background(), githubRepo.OwnerName, githubRepo.RepoName, nil)
+
+			if err != nil {
+				if _, ok := err.(*github.RateLimitError); ok {
+					fmt.Println("contrib function returned ratelimit error")
+					rateLimit.Store(0)
+					githubRepoChan <- githubRepo
+					continue
+				}
+
+				fmt.Println("error when getting contributers", err)
+				githubRepo.Error = err
+				githubRepoWithContributorsChan <- githubRepo
+				continue
+			}
+
+			contributerMap := map[string]int{}
+
+			for _, contributer := range contributers {
+				contributerMap[*contributer.Login] = *contributer.Contributions
+			}
+
+			githubRepo.ContributerCount = len(contributers)
+			githubRepo.Contributers = contributerMap
 			githubRepoWithContributorsChan <- githubRepo
-			continue
+		default:
+			if len(markdownRepoChan) == 0 {
+				close(githubRepoChan)
+				close(githubRepoWithContributorsChan)
+				wg.Done()
+				return
+			}
 		}
-
-		contributerMap := map[string]int{}
-
-		for _, contributer := range contributers {
-			contributerMap[*contributer.Login] = *contributer.Contributions
-		}
-
-		githubRepo.ContributerCount = len(contributers)
-		githubRepo.Contributers = contributerMap
-		githubRepoWithContributorsChan <- githubRepo
 	}
 
 	wg.Done()
