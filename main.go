@@ -228,13 +228,18 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 
 	counter := 0
 	lastCount := len(githubRepoWithContributors)
+
+	fmt.Println("Initial sleep time", 30)
+	time.Sleep(time.Second * 30)
+
 	for len(githubRepoWithContributors) != len(markdownRepos) {
-		if lastCount != len(githubRepoWithContributors) {
-			fmt.Printf("Waiting for all go routines to finish %d/%d [limit:%d]\n", len(githubRepoWithContributors), len(markdownRepos), rateLimit.Load())
-		}
-		time.Sleep(time.Second)
 		// fetch rate limit every 5 seconds
-		if counter%5 == 0 {
+		if counter%10 == 0 {
+			if lastCount != len(githubRepoWithContributors) {
+				fmt.Printf("Waiting for all go routines to finish %d/%d [limit:%d]\n", len(githubRepoWithContributors), len(markdownRepos), rateLimit.Load())
+			}
+
+			fmt.Println("fetching ratelimit")
 			limits, _, err := client.RateLimits(context.Background())
 			if err != nil {
 				rateLimit.Store(0)
@@ -255,6 +260,8 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 				time.Sleep(time.Until(limits.Core.Reset.Time) + (time.Second * 5))
 			}
 		}
+
+		time.Sleep(time.Second)
 		counter++
 	}
 
