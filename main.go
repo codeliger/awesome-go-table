@@ -211,6 +211,7 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 	}
 
 	rateLimit.Store(int32(limits.Core.Remaining))
+	fmt.Println("initial rate limit", rateLimit.Load())
 
 	wg := sync.WaitGroup{}
 
@@ -237,8 +238,8 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 
 			fmt.Println("fetching ratelimit")
 			limits, _, err := client.RateLimits(context.Background())
+			fmt.Println(limits)
 			if err != nil {
-				rateLimit.Store(0)
 				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
 					fmt.Println("Rate limit reached sleeping until reset time", time.Until(rateLimitErr.Rate.Reset.Time).Seconds())
 					time.Sleep(time.Until(rateLimitErr.Rate.Reset.Time))
@@ -250,6 +251,8 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 			} else {
 				rateLimit.Store(int32(limits.Core.Remaining))
 			}
+
+			fmt.Println("new rate limit", rateLimit.Load())
 
 			if rateLimit.Load() < 1 {
 				fmt.Println("Rate limit reached, sleeping for", time.Until(limits.Core.Reset.Time).Seconds())
@@ -274,21 +277,28 @@ func getClient(authToken string) *github.Client {
 func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *sync.WaitGroup, markdownRepoChan chan MarkdownRepo, githubRepoChan chan GithubRepo) {
 	for {
 		for rateLimit.Load()-1 < 1 {
-			fmt.Println("RepoContributors: waiting for rate limit to reset")
+			fmt.Println("GithubRepo: waiting for rate limit to reset", rateLimit.Load())
 			time.Sleep(1 * time.Second)
 			continue
 		}
 
-		rateLimit.Add(-1)
-
 		select {
-		case markdownRepo := <-markdownRepoChan:
+		case markdownRepo, ok := <-markdownRepoChan:
+			if !ok {
+				fmt.Println("GithubRepo: channel closed")
+				wg.Done()
+				return
+			}
+
+			fmt.Println("subtracting from ratelimit", rateLimit.Add(-1))
+
 			repo, _, err := client.Repositories.Get(context.Background(), markdownRepo.OwnerName, markdownRepo.RepoName)
 			if err != nil {
-				if _, ok := err.(*github.RateLimitError); ok {
+				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
 					fmt.Println("repo function returned ratelimit error")
-					rateLimit.Store(0)
+					rateLimit.Store(int32(rateLimitErr.Rate.Remaining))
 					markdownRepoChan <- markdownRepo
+					continue
 				}
 
 				fmt.Println("error when getting repo", err)
@@ -317,28 +327,35 @@ func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *s
 		default:
 			close(markdownRepoChan)
 			wg.Done()
+			return
 		}
 	}
 
 }
 
 func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *sync.WaitGroup, githubRepoChan chan GithubRepo, githubRepoWithContributorsChan chan GithubRepo, markdownRepoChan chan MarkdownRepo) {
-
 	for {
 		for rateLimit.Load()-1 < 1 {
-			fmt.Println("RepoContributors: waiting for rate limit to reset")
+			fmt.Println("RepoContributors: waiting for rate limit to reset", rateLimit.Load())
 			time.Sleep(1 * time.Second)
 			continue
 		}
 
-		rateLimit.Add(-1)
-
 		select {
-		case githubRepo := <-githubRepoChan:
+		case githubRepo, ok := <-githubRepoChan:
+			// hypothetical for multiple threads (secondary rate limit is reached using more than 1 thread)
+			if !ok {
+				fmt.Println("RepoContributors: channel closed")
+				wg.Done()
+				return
+			}
+
 			if githubRepo.Error != nil {
 				githubRepoWithContributorsChan <- githubRepo
 				continue
 			}
+
+			rateLimit.Add(-1)
 
 			contributers, _, err := client.Repositories.ListContributors(context.Background(), githubRepo.OwnerName, githubRepo.RepoName, nil)
 
@@ -374,8 +391,6 @@ func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, w
 			}
 		}
 	}
-
-	wg.Done()
 }
 
 func getText(URL string) string {
