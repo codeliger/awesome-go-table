@@ -360,9 +360,9 @@ func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, w
 			contributers, _, err := client.Repositories.ListContributors(context.Background(), githubRepo.OwnerName, githubRepo.RepoName, nil)
 
 			if err != nil {
-				if _, ok := err.(*github.RateLimitError); ok {
+				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
 					fmt.Println("contrib function returned ratelimit error")
-					rateLimit.Store(0)
+					rateLimit.Store(int32(rateLimitErr.Rate.Remaining))
 					githubRepoChan <- githubRepo
 					continue
 				}
