@@ -1,10 +1,10 @@
 name: Build project every 24 hours
-on:
+on: workflow_dispatch
 #  schedule:
 #    - cron: "0 0 * * *"
-  push:
-    branches:
-      - master
+#  push:
+#    branches:
+#      - master
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Awesome Go Github Repos</title>
+	<script type="module">
+		import {
+			Grid,
+			html
+		} from "https://unpkg.com/gridjs?module";
+
+		function callback(data) {
+			const grid = new Grid({
+				columns: ["Category", "Subcategory", "Special Category", "Name", "Description", "Stars"],
+				data: data,
+			}).render(document.getElementById("grid"));
+		};
+
+		fetch("https://api.github.com/repos/codeliger/awesome-go-table/releases/latest")
+			.then((response) => response.json())
+			.then((data) => {
+				document.getElementById('jsonp').setAttribute('src', data.assets[0].browser_download_url + '?callback=callback');
+			})
+	</script>
+	<script id="jsonp"></script>
+	<link href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css" rel="stylesheet" />
+</head>
+
+<body>
+	<div id="grid"></div>
+</body>
+
+</html>
