@@ -1,9 +1,14 @@
 # Simple workflow for deploying static content to GitHub Pages
-name: Fetch and update repos in index.html
+name: Update repos in index.html from releases
 on:
   workflow_dispatch:
   push:
     branches: ["master"]
+  workflow_run:
+    workflows: ["Fetch latest repos"]
+    types:
+      - completed
+
 
 env:
   GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}

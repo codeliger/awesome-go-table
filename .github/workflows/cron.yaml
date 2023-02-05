@@ -39,4 +39,3 @@ jobs:
         artifacts: github_repos.json
         name: ${{ steps.filename.outputs.json }}
         tag: ${{ steps.tagname.outputs.date }}
-
