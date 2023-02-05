@@ -235,7 +235,7 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 			fmt.Println(limits)
 			if err != nil {
 				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
-					fmt.Println("Rate limit reached sleeping until reset time", time.Until(rateLimitErr.Rate.Reset.Time).Seconds())
+					fmt.Println("Rate limit reached while fetching ratelimits sleeping until reset time", time.Until(rateLimitErr.Rate.Reset.Time).Seconds())
 					time.Sleep(time.Until(rateLimitErr.Rate.Reset.Time))
 				} else {
 					fmt.Println("unknown error when retrieving ratelimits sleeping 5 second", err)
@@ -291,6 +291,10 @@ func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *s
 				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
 					fmt.Println("repo function returned ratelimit error")
 					rateLimit.Store(int32(rateLimitErr.Rate.Remaining))
+					if strings.Contains(rateLimitErr.Message, "secondary") {
+						fmt.Println("secondary rate limit reached, sleeping for 3 seconds")
+						time.Sleep(3 * time.Second)
+					}
 					markdownRepoChan <- markdownRepo
 					continue
 				}
@@ -355,6 +359,10 @@ func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, w
 				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
 					fmt.Println("contrib function returned ratelimit error")
 					rateLimit.Store(int32(rateLimitErr.Rate.Remaining))
+					if strings.Contains(rateLimitErr.Message, "secondary") {
+						fmt.Println("secondary rate limit reached, sleeping for 3 seconds")
+						time.Sleep(3 * time.Second)
+					}
 					githubRepoChan <- githubRepo
 					continue
 				}
