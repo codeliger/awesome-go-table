@@ -454,7 +454,7 @@ func addJSONToIndex(bytes []byte) {
 	}
 }
 
-func fetchReleaseJSON() ([]byte, error) {
+func getReleaseJSON() ([]byte, error) {
 	resp, err := http.Get("https://api.github.com/repos/codeliger/awesome-go-table/releases/latest")
 	if err != nil {
 		return []byte{}, err
@@ -495,7 +495,7 @@ func fetchReleaseJSON() ([]byte, error) {
 func main() {
 	getRepos := flag.Bool("update", false, "fetch repos from github and save it as json")
 	testRateLimit := flag.Bool("test", false, "test rate limit")
-	fetchJSON := flag.Bool("latest", false, "fetch latest build artifact")
+	latestRelease := flag.Bool("latest", false, "fetch latest build artifact")
 	saveInHTML := flag.Bool("save", false, "save in html")
 
 	flag.Parse()
@@ -507,14 +507,24 @@ func main() {
 		panic(errors.New("GITHUB_TOKEN is not set"))
 	}
 
-	if *fetchJSON {
-		bytes, err := fetchReleaseJSON()
+	if *latestRelease {
+		jsonBytes, err := getReleaseJSON()
 		if err != nil {
 			panic(err)
 		}
 
 		if *saveInHTML {
-			addJSONToIndex(bytes)
+			githubRepos := []GithubRepo{}
+			err = json.Unmarshal(jsonBytes, &githubRepos)
+			if err != nil {
+				panic(err)
+			}
+
+			remarshalledBytes, err := json.Marshal(githubRepos)
+			if err != nil {
+				panic(err)
+			}
+			addJSONToIndex(remarshalledBytes)
 		}
 	} else if *getRepos {
 		markdownRepos, err := parseMarkdownRepos(githubToken)
