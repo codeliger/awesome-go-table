@@ -404,74 +404,6 @@ func parseGithubsURLRegex(text string) [][][]byte {
 	return reRepo.FindAllSubmatch([]byte(text), -1)
 }
 
-func createChartNode() *html.Node {
-	chartData := `
-		import {
-			Grid,
-			html
-		} from "https://unpkg.com/gridjs?module";
-
-		const grid = new Grid({
-			sort: true,
-			fixedHeader: true,
-			search: true,
-			data: repoData,
-			columns: [
-				{
-					id: "Category",
-					name: "Category",
-				},
-				{
-					id: "Subcategory",
-					name: "SubCategory",
-				},
-				{
-					id: "SpecialCategory",
-					name: "SpecialCategory",
-				},
-				{
-					id: "RepoName",
-					name: "Name",
-				},
-				{
-					id: "Description",
-					name: "Description",
-				},
-				{
-					id: "Stars",
-					name: "Stars",
-				},
-				{
-					id: "LastCommit",
-					name: "Last Commit",
-				},
-				{
-					id: "ContributerCount",
-					name: "Contributors",
-				}
-			],
-		}).render(document.getElementById("grid"));
-	`
-
-	node := &html.Node{
-		Type: html.ElementNode,
-		Data: "script",
-		Attr: []html.Attribute{
-			{
-				Key: "type",
-				Val: "module",
-			},
-		},
-	}
-
-	node.AppendChild(&html.Node{
-		Type: html.TextNode,
-		Data: chartData,
-	})
-
-	return node
-}
-
 func addJSONToIndex(bytes []byte) {
 	f, err := os.OpenFile("template.html", os.O_RDWR, 0o644)
 	if err != nil {
@@ -508,7 +440,6 @@ func addJSONToIndex(bytes []byte) {
 				Data: "const repoData = " + string(bytes),
 			})
 			n.AppendChild(script)
-			// n.AppendChild(createChartNode())
 			return
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -607,9 +538,7 @@ func main() {
 		if *saveInHTML {
 			addJSONToIndex(bytes)
 		}
-	}
-
-	if !*getRepos && *saveInHTML {
+	} else if *saveInHTML {
 		jsonBytes, err := os.ReadFile("github_repos.json")
 		if err != nil {
 			panic(err)
