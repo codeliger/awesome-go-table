@@ -16,39 +16,43 @@ import (
 	"time"
 
 	"github.com/google/go-github/github"
+	"github.com/joho/godotenv"
+	"golang.org/x/net/html"
 	"golang.org/x/oauth2"
 )
 
-const SPECIALCATEGORY = "#### "
-const SUBCATEGORY = "### "
-const CATEGORY = "## "
+const (
+	SPECIALCATEGORY = "#### "
+	SUBCATEGORY     = "### "
+	CATEGORY        = "## "
+)
 
 type MarkdownRepo struct {
-	Category        string
-	Subcategory     string
-	SpecialCategory string
-	ProjectName     string
-	Description     string
-	OwnerName       string
-	RepoName        string
-	GithubPagesName string
-	URL             string
+	Category        string `json:"category"`
+	SubCategory     string `json:"subcategory"`
+	SpecialCategory string `json:"special_category"`
+	ProjectName     string `json:"project_name"`
+	Description     string `json:"description"`
+	OwnerName       string `json:"owner_name"`
+	RepoName        string `json:"repo_name"`
+	GithubPagesName string `json:"github_pages_name"`
+	URL             string `json:"url"`
 }
 
 type GithubRepo struct {
 	MarkdownRepo
-	Stars            int
-	Watchers         int
-	CreatedAt        time.Time
-	PushedAt         time.Time
-	LastCommit       time.Time
-	Forks            int
-	OpenIssues       int
-	ContributerCount int
-	License          string
-	Archived         bool
-	Contributers     map[string]int
-	Error            error `json:"omitempty"`
+	Stars            int            `json:"stars"`
+	Watchers         int            `json:"watchers"`
+	CreatedAt        time.Time      `json:"created_at"`
+	PushedAt         time.Time      `json:"pushed_at"`
+	LastCommit       time.Time      `json:"last_commit"`
+	Forks            int            `json:"forks"`
+	OpenIssues       int            `json:"open_issues"`
+	ContributerCount int            `json:"contributer_count"`
+	License          string         `json:"license"`
+	Archived         bool           `json:"archived"`
+	Contributers     map[string]int `json:"contributers"`
+	Error            error          `json:"error,omitempty"`
 }
 
 func parseCategory(lineGroup []string, category string, subCategory string, specialCategory string) []MarkdownRepo {
@@ -71,7 +75,7 @@ func parseCategory(lineGroup []string, category string, subCategory string, spec
 			URL:             string(match[2]),
 			Description:     string(match[6]),
 			Category:        category,
-			Subcategory:     subCategory,
+			SubCategory:     subCategory,
 			SpecialCategory: specialCategory,
 		}
 
@@ -100,18 +104,9 @@ func jsonFileExists() bool {
 	return true
 }
 
-func reposToJson(githubRepos []GithubRepo) ([]byte, error) {
-	bytes, err := json.Marshal(githubRepos)
-	if err != nil {
-		return nil, err
-	}
-
-	return bytes, nil
-}
-
 func bytesToFile(bytes []byte) error {
 	fileName := getFileName()
-	err := os.WriteFile(fileName, bytes, 0644)
+	err := os.WriteFile(fileName, bytes, 0o644)
 	if err != nil {
 		return err
 	}
@@ -168,7 +163,6 @@ func parseMarkdownRepos(githubToken string) ([]MarkdownRepo, error) {
 			filteredRepos = append(filteredRepos, repo)
 		} else {
 			fmt.Printf("Skipping custom domain repo %+v\n", repo)
-
 		}
 	}
 
@@ -330,7 +324,6 @@ func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *s
 			return
 		}
 	}
-
 }
 
 func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *sync.WaitGroup, githubRepoChan chan GithubRepo, githubRepoWithContributorsChan chan GithubRepo, markdownRepoChan chan MarkdownRepo) {
@@ -358,7 +351,6 @@ func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, w
 			rateLimit.Add(-1)
 
 			contributers, _, err := client.Repositories.ListContributors(context.Background(), githubRepo.OwnerName, githubRepo.RepoName, nil)
-
 			if err != nil {
 				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
 					fmt.Println("contrib function returned ratelimit error")
@@ -412,10 +404,133 @@ func parseGithubsURLRegex(text string) [][][]byte {
 	return reRepo.FindAllSubmatch([]byte(text), -1)
 }
 
+func createChartNode() *html.Node {
+	chartData := `
+		import {
+			Grid,
+			html
+		} from "https://unpkg.com/gridjs?module";
+
+		const grid = new Grid({
+			sort: true,
+			fixedHeader: true,
+			search: true,
+			data: repoData,
+			columns: [
+				{
+					id: "Category",
+					name: "Category",
+				},
+				{
+					id: "Subcategory",
+					name: "SubCategory",
+				},
+				{
+					id: "SpecialCategory",
+					name: "SpecialCategory",
+				},
+				{
+					id: "RepoName",
+					name: "Name",
+				},
+				{
+					id: "Description",
+					name: "Description",
+				},
+				{
+					id: "Stars",
+					name: "Stars",
+				},
+				{
+					id: "LastCommit",
+					name: "Last Commit",
+				},
+				{
+					id: "ContributerCount",
+					name: "Contributors",
+				}
+			],
+		}).render(document.getElementById("grid"));
+	`
+
+	node := &html.Node{
+		Type: html.ElementNode,
+		Data: "script",
+		Attr: []html.Attribute{
+			{
+				Key: "type",
+				Val: "module",
+			},
+		},
+	}
+
+	node.AppendChild(&html.Node{
+		Type: html.TextNode,
+		Data: chartData,
+	})
+
+	return node
+}
+
+func addJSONToIndex(bytes []byte) {
+	f, err := os.OpenFile("template.html", os.O_RDWR, 0o644)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	f2, err := os.Create("index.html")
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	doc, err := html.Parse(f)
+	if err != nil {
+		panic(err)
+	}
+
+	var recurseHTML func(*html.Node)
+	recurseHTML = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "head" {
+			script := &html.Node{
+				Type: html.ElementNode,
+				Data: "script",
+				Attr: []html.Attribute{
+					{
+						Key: "id",
+						Val: "data",
+					},
+				},
+			}
+			script.AppendChild(&html.Node{
+				Type: html.TextNode,
+				Data: "const repoData = " + string(bytes),
+			})
+			n.AppendChild(script)
+			// n.AppendChild(createChartNode())
+			return
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			recurseHTML(c)
+		}
+	}
+	recurseHTML(doc)
+
+	err = html.Render(f2, doc)
+	if err != nil {
+		panic(err)
+	}
+}
+
 func main() {
 	getRepos := flag.Bool("update", false, "fetch repos from github and save it as json")
 	testRateLimit := flag.Bool("test", false, "test rate limit")
+	writeHTML := flag.Bool("save", false, "save in html")
+
 	flag.Parse()
+
+	godotenv.Load()
 
 	githubToken := os.Getenv("GITHUB_TOKEN")
 	if githubToken == "" {
@@ -431,15 +546,40 @@ func main() {
 		client := getClient(githubToken)
 		githubRepos := getGithubReposFromMarkdownRepos(client, markdownRepos)
 
-		reposAsBytes, err := reposToJson(githubRepos)
+		bytes, err := json.Marshal(githubRepos)
 		if err != nil {
 			panic(err)
 		}
 
-		err = bytesToFile(reposAsBytes)
+		err = bytesToFile(bytes)
 		if err != nil {
 			panic(err)
 		}
+
+		if *writeHTML {
+			addJSONToIndex(bytes)
+		}
+	}
+
+	if !*getRepos && *writeHTML {
+		jsonBytes, err := os.ReadFile("github_repos.json")
+		if err != nil {
+			panic(err)
+		}
+
+		// WHY DO I NEED TO RETRANSFORM THE JSON SO IT WORKS IN JAVASCRIPT?
+		githubRepos := []GithubRepo{}
+		err = json.Unmarshal(jsonBytes, &githubRepos)
+		if err != nil {
+			panic(err)
+		}
+
+		remarshalledBytes, err := json.Marshal(githubRepos)
+		if err != nil {
+			panic(err)
+		}
+
+		addJSONToIndex(remarshalledBytes)
 	}
 
 	if *testRateLimit {

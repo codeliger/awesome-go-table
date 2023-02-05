@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Awesome Go Github Repos</title>
+	<link href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css" rel="stylesheet" />
+	<script type="module">
+		import {
+			Grid,
+			html
+		} from "https://unpkg.com/gridjs?module";
+		const grid = new Grid({
+			sort: true,
+			fixedHeader: true,
+			search: true,
+			data: repoData,
+			columns: [
+				{
+					id: "category",
+					name: "Category",
+				},
+				{
+					id: "subcategory",
+					name: "Subcategory",
+				},
+				{
+					id: "special_category",
+					name: "Special Category",
+				},
+				{
+					id: "repo_name",
+					name: "Name",
+				},
+				{
+					id: "description",
+					name: "Description",
+				},
+				{
+					id: "stars",
+					name: "Stars",
+				},
+				{
+					id: "last_commit",
+					name: "Last Commit",
+				},
+				{
+					id: "contributer_count",
+					name: "Contributors",
+				}
+			],
+		}).render(document.getElementById("grid"));
+	</script>
+</head>
+
+<body>
+	<div id="grid"></div>
+</body>
+
+</html>
