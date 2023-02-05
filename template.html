@@ -11,6 +11,9 @@
 			Grid,
 			html
 		} from "https://unpkg.com/gridjs?module";
+		for (let i = 0; i < repoData.length; i++) {
+				repoData[i].repo_name = html(`<a href="${repoData[i].url}" target="_blank">${repoData[i].repo_name}</a>`);
+		}
 		const grid = new Grid({
 			sort: true,
 			fixedHeader: true,
