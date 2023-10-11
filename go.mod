@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/google/go-github v17.0.0+incompatible
 	github.com/joho/godotenv v1.4.0
-	golang.org/x/net v0.7.0
+	golang.org/x/net v0.17.0
 	golang.org/x/oauth2 v0.0.0-20220909003341-f21342109be1
 )
 
