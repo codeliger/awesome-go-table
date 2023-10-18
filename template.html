@@ -17,7 +17,9 @@
 		const grid = new Grid({
 			sort: true,
 			fixedHeader: true,
-			search: true,
+			search: {
+				"debounceTimeout": 3000,
+			},
 			data: repoData,
 			columns: [
 				{
