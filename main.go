@@ -363,13 +363,17 @@ func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, w
 
 			contributers, _, err := client.Repositories.ListContributors(context.Background(), githubRepo.OwnerName, githubRepo.RepoName, nil)
 			if err != nil {
+				if strings.Contains(err.Error(), "secondary") {
+					fmt.Println("secondary rate limit reached, sleeping for 3 seconds")
+					time.Sleep(3 * time.Second)
+
+					githubRepoChan <- githubRepo
+					continue
+				}
+
 				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
 					fmt.Println("contrib function returned ratelimit error")
 					rateLimit.Store(int32(rateLimitErr.Rate.Remaining))
-					if strings.Contains(rateLimitErr.Message, "secondary") {
-						fmt.Println("secondary rate limit reached, sleeping for 3 seconds")
-						time.Sleep(3 * time.Second)
-					}
 					githubRepoChan <- githubRepo
 					continue
 				}
