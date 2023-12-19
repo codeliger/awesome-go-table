@@ -162,7 +162,7 @@ func parseMarkdownRepos(githubToken string) ([]MarkdownRepo, error) {
 		if repo.GithubPagesName == "" {
 			filteredRepos = append(filteredRepos, repo)
 		} else {
-			fmt.Printf("Skipping custom domain repo %+v\n", repo)
+			fmt.Printf("skipping custom domain repo %+v\n", repo)
 		}
 	}
 
@@ -222,20 +222,20 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 	}
 
 	counter := 0
-	fmt.Println("Initial sleep time", 30)
+	fmt.Println("initial sleep time", 30)
 	time.Sleep(time.Second * 30)
 
 	for len(githubRepoChan) > 0 || len(markdownRepoChan) > 0 {
 		// fetch rate limit every 5 seconds
 		if counter%10 == 0 && counter != 0 {
-			fmt.Printf("Waiting for all go routines to finish %d/%d [limit:%d]\n", len(githubRepoWithContributors), len(markdownRepos), rateLimit.Load())
+			fmt.Printf("waiting for all go routines to finish %d/%d [limit:%d]\n", len(githubRepoWithContributors), len(markdownRepos), rateLimit.Load())
 
 			fmt.Println("fetching ratelimit")
 			limits, _, err := client.RateLimits(context.Background())
 			fmt.Println(limits)
 			if err != nil {
 				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
-					fmt.Println("Rate limit reached while fetching ratelimits sleeping until reset time", time.Until(rateLimitErr.Rate.Reset.Time).Seconds())
+					fmt.Println("rate limit reached while fetching ratelimits sleeping until reset time", time.Until(rateLimitErr.Rate.Reset.Time).Seconds())
 					time.Sleep(time.Until(rateLimitErr.Rate.Reset.Time))
 				} else {
 					fmt.Println("unknown error when retrieving ratelimits sleeping 5 second", err)
@@ -243,13 +243,12 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 				}
 				continue
 			} else {
+				fmt.Printf("expected rate limit %d; actual rate limit %d; updating\n", rateLimit.Load(), limits.Core.Remaining)
 				rateLimit.Store(int32(limits.Core.Remaining))
 			}
 
-			fmt.Println("new rate limit", rateLimit.Load())
-
 			if rateLimit.Load() < 1 {
-				fmt.Println("Rate limit reached, sleeping for", time.Until(limits.Core.Reset.Time).Seconds())
+				fmt.Println("rate limit reached, sleeping for", time.Until(limits.Core.Reset.Time).Seconds())
 				time.Sleep(time.Until(limits.Core.Reset.Time) + (time.Second * 5))
 			}
 		}
