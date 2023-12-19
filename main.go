@@ -284,7 +284,7 @@ func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *s
 				return
 			}
 
-			fmt.Println("subtracting from ratelimit", rateLimit.Add(-1))
+			rateLimit.Add(-1)
 
 			repo, _, err := client.Repositories.Get(context.Background(), markdownRepo.OwnerName, markdownRepo.RepoName)
 			if err != nil {
