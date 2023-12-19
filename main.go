@@ -228,11 +228,10 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 	for len(githubRepoChan) > 0 || len(markdownRepoChan) > 0 {
 		// fetch rate limit every 5 seconds
 		if counter%10 == 0 && counter != 0 {
-			fmt.Printf("waiting for all go routines to finish %d/%d [limit:%d]\n", len(githubRepoWithContributors), len(markdownRepos), rateLimit.Load())
+			fmt.Printf("waiting for all tasks to finish %d/%d\n", len(githubRepoWithContributors), len(markdownRepos))
 
 			fmt.Println("fetching ratelimit")
 			limits, _, err := client.RateLimits(context.Background())
-			fmt.Println(limits)
 			if err != nil {
 				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
 					fmt.Println("rate limit reached while fetching ratelimits sleeping until reset time", time.Until(rateLimitErr.Rate.Reset.Time).Seconds())
@@ -243,7 +242,12 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 				}
 				continue
 			} else {
-				fmt.Printf("expected rate limit %d; actual rate limit %d; updating\n", rateLimit.Load(), limits.Core.Remaining)
+				fmt.Printf("core: total_limit: %d; expected_limit: %d; remaining_limit: %d; resets in %f seconds\n",
+					limits.Core.Limit,
+					rateLimit.Load(),
+					limits.Core.Remaining,
+					time.Until(limits.Core.Reset.Time).Seconds())
+				fmt.Println("storing real rate limit")
 				rateLimit.Store(int32(limits.Core.Remaining))
 			}
 
