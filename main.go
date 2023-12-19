@@ -288,13 +288,17 @@ func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *s
 
 			repo, _, err := client.Repositories.Get(context.Background(), markdownRepo.OwnerName, markdownRepo.RepoName)
 			if err != nil {
+				if strings.Contains(err.Error(), "secondary") {
+					fmt.Println("secondary rate limit reached, sleeping for 3 seconds")
+					time.Sleep(3 * time.Second)
+
+					markdownRepoChan <- markdownRepo
+					continue
+				}
 				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
 					fmt.Println("repo function returned ratelimit error")
 					rateLimit.Store(int32(rateLimitErr.Rate.Remaining))
-					if strings.Contains(rateLimitErr.Message, "secondary") {
-						fmt.Println("secondary rate limit reached, sleeping for 3 seconds")
-						time.Sleep(3 * time.Second)
-					}
+
 					markdownRepoChan <- markdownRepo
 					continue
 				}
