@@ -520,9 +520,7 @@ func main() {
 	flag.Parse()
 
 	err := godotenv.Load()
-	if err != nil {
-		panic(err)
-	}
+	fmt.Println(err)
 
 	githubToken := os.Getenv("GITHUB_TOKEN")
 	if githubToken == "" {
