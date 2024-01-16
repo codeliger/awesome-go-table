@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/go-github/github"
+	"github.com/google/go-github/v58/github"
 	"github.com/joho/godotenv"
 	"golang.org/x/net/html"
 	"golang.org/x/oauth2"
@@ -199,7 +199,7 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 
 	rateLimit := &atomic.Int32{}
 
-	limits, _, err := client.RateLimits(context.Background())
+	limits, _, err := client.RateLimit.Get(context.Background())
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -231,7 +231,7 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 			fmt.Printf("waiting for all tasks to finish %d/%d\n", len(githubRepoWithContributors), len(markdownRepos))
 
 			fmt.Println("fetching ratelimit")
-			limits, _, err := client.RateLimits(context.Background())
+			limits, _, err := client.RateLimit.Get(context.Background())
 			if err != nil {
 				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
 					fmt.Println("rate limit reached while fetching ratelimits sleeping until reset time", time.Until(rateLimitErr.Rate.Reset.Time).Seconds())
@@ -519,7 +519,10 @@ func main() {
 
 	flag.Parse()
 
-	godotenv.Load()
+	err := godotenv.Load()
+	if err != nil {
+		panic(err)
+	}
 
 	githubToken := os.Getenv("GITHUB_TOKEN")
 	if githubToken == "" {
@@ -590,7 +593,7 @@ func main() {
 
 	if *testRateLimit {
 		client := getClient(githubToken)
-		limits, resp, err := client.RateLimits(context.Background())
+		limits, resp, err := client.RateLimit.Get(context.Background())
 		if err != nil {
 			fmt.Println(err)
 		}
