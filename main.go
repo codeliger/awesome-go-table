@@ -192,7 +192,11 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 	githubRepoChan := make(chan GithubRepo, len(markdownRepos))
 
 	for _, item := range markdownRepos {
-		markdownRepoChan <- item
+		select {
+		case markdownRepoChan <- item:
+		default:
+			fmt.Println("markdownRepoChan is closed")
+		}
 	}
 
 	fmt.Println("markdown repo length", len(markdownRepos))
@@ -295,21 +299,33 @@ func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *s
 					fmt.Println("secondary rate limit reached, sleeping for 3 seconds")
 					time.Sleep(3 * time.Second)
 
-					markdownRepoChan <- markdownRepo
+					select {
+					case markdownRepoChan <- markdownRepo:
+					default:
+						fmt.Println("markdownRepoChan is closed")
+					}
 					continue
 				}
 				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
 					fmt.Println("repo function returned ratelimit error")
 					rateLimit.Store(int32(rateLimitErr.Rate.Remaining))
 
-					markdownRepoChan <- markdownRepo
+					select {
+					case markdownRepoChan <- markdownRepo:
+					default:
+						fmt.Println("markdownRepoChan is closed")
+					}
 					continue
 				}
 
 				fmt.Println("error when getting repo", err)
-				githubRepoChan <- GithubRepo{
+				select {
+				case githubRepoChan <- GithubRepo{
 					MarkdownRepo: markdownRepo,
 					Error:        err,
+				}:
+				default:
+					fmt.Println("githubRepoChan is closed")
 				}
 				continue
 			}
@@ -327,7 +343,11 @@ func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *s
 				Archived:     repo.GetArchived(),
 			}
 
-			githubRepoChan <- githubRepo
+			select {
+			case githubRepoChan <- githubRepo:
+			default:
+				fmt.Println("githubRepoChan is closed")
+			}
 
 		default:
 			close(markdownRepoChan)
@@ -355,7 +375,11 @@ func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, w
 			}
 
 			if githubRepo.Error != nil {
-				githubRepoWithContributorsChan <- githubRepo
+				select {
+				case githubRepoWithContributorsChan <- githubRepo:
+				default:
+					fmt.Println("githubRepoWithContributorsChan is closed")
+				}
 				continue
 			}
 
@@ -367,20 +391,32 @@ func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, w
 					fmt.Println("secondary rate limit reached, sleeping for 3 seconds")
 					time.Sleep(3 * time.Second)
 
-					githubRepoChan <- githubRepo
+					select {
+					case githubRepoChan <- githubRepo:
+					default:
+						fmt.Println("githubRepoChan is closed")
+					}
 					continue
 				}
 
 				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
 					fmt.Println("contrib function returned ratelimit error")
 					rateLimit.Store(int32(rateLimitErr.Rate.Remaining))
-					githubRepoChan <- githubRepo
+					select {
+					case githubRepoChan <- githubRepo:
+					default:
+						fmt.Println("githubRepoChan is closed")
+					}
 					continue
 				}
 
 				fmt.Println("error when getting contributers", err)
 				githubRepo.Error = err
-				githubRepoWithContributorsChan <- githubRepo
+				select {
+				case githubRepoWithContributorsChan <- githubRepo:
+				default:
+					fmt.Println("githubRepoWithContributorsChan is closed")
+				}
 				continue
 			}
 
@@ -392,7 +428,11 @@ func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, w
 
 			githubRepo.ContributerCount = len(contributers)
 			githubRepo.Contributers = contributerMap
-			githubRepoWithContributorsChan <- githubRepo
+			select {
+			case githubRepoWithContributorsChan <- githubRepo:
+			default:
+				fmt.Println("githubRepoWithContributorsChan is closed")
+			}
 		default:
 			if len(markdownRepoChan) == 0 {
 				close(githubRepoChan)
