@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/google/go-github/v58 v58.0.0
 	github.com/joho/godotenv v1.5.1
-	golang.org/x/net v0.20.0
+	golang.org/x/net v0.23.0
 	golang.org/x/oauth2 v0.16.0
 )
 
