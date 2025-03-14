@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -463,7 +464,7 @@ func parseGithubsURLRegex(text string) [][][]byte {
 	return reRepo.FindAllSubmatch([]byte(text), -1)
 }
 
-func addJSONToIndex(bytes []byte) {
+func addScriptToIndex(bytes []byte) {
 	f, err := os.OpenFile("template.html", os.O_RDWR, 0o644)
 	if err != nil {
 		panic(err)
@@ -496,7 +497,7 @@ func addJSONToIndex(bytes []byte) {
 			}
 			script.AppendChild(&html.Node{
 				Type: html.TextNode,
-				Data: "const repoData = " + string(bytes),
+				Data: string(bytes),
 			})
 			n.AppendChild(script)
 			return
@@ -567,26 +568,7 @@ func main() {
 		panic(errors.New("GITHUB_TOKEN is not set"))
 	}
 
-	if *latestRelease {
-		jsonBytes, err := getReleaseJSON()
-		if err != nil {
-			panic(err)
-		}
-
-		if *saveInHTML {
-			githubRepos := []GithubRepo{}
-			err = json.Unmarshal(jsonBytes, &githubRepos)
-			if err != nil {
-				panic(err)
-			}
-
-			remarshalledBytes, err := json.Marshal(githubRepos)
-			if err != nil {
-				panic(err)
-			}
-			addJSONToIndex(remarshalledBytes)
-		}
-	} else if *getRepos {
+	if *getRepos {
 		markdownRepos, err := parseMarkdownRepos(githubToken)
 		if err != nil {
 			panic(err)
@@ -595,26 +577,34 @@ func main() {
 		client := getClient(githubToken)
 		githubRepos := getGithubReposFromMarkdownRepos(client, markdownRepos)
 
-		bytes, err := json.Marshal(githubRepos)
+		repoBytes, err := json.Marshal(githubRepos)
 		if err != nil {
 			panic(err)
 		}
 
-		err = bytesToFile(bytes)
+		err = bytesToFile(repoBytes)
 		if err != nil {
 			panic(err)
 		}
+	}
 
-		if *saveInHTML {
-			addJSONToIndex(bytes)
-		}
-	} else if *saveInHTML {
-		jsonBytes, err := os.ReadFile("github_repos.json")
+	jsonBytes, err := os.ReadFile("github_repos.json")
+	if err != nil {
+		fmt.Println("local github_repos.json not found")
+	}
+
+	// don't refetch the latest release remotely if the latest was fetched locally
+	if !*getRepos && *latestRelease {
+		jsonBytes, err = getReleaseJSON()
 		if err != nil {
 			panic(err)
 		}
+	}
 
-		// WHY DO I NEED TO RETRANSFORM THE JSON SO IT WORKS IN JAVASCRIPT?
+	if *saveInHTML {
+		if err != nil {
+			return
+		}
 		githubRepos := []GithubRepo{}
 		err = json.Unmarshal(jsonBytes, &githubRepos)
 		if err != nil {
@@ -626,7 +616,11 @@ func main() {
 			panic(err)
 		}
 
-		addJSONToIndex(remarshalledBytes)
+		fmt.Println(string(remarshalledBytes))
+
+		base64Bytes := []byte{}
+		base64.StdEncoding.Encode(base64Bytes, remarshalledBytes)
+		addScriptToIndex(base64Bytes)
 	}
 
 	if *testRateLimit {
