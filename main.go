@@ -474,33 +474,36 @@ func addScriptToIndex(bytes []byte) {
 	if err != nil {
 		panic(err)
 	}
-	defer f.Close()
+	defer f2.Close() // Fixed: was using f.Close() again instead of f2.Close()
 
 	doc, err := html.Parse(f)
 	if err != nil {
 		panic(err)
 	}
 
+	// Find the script element with id="data" and update its content
 	var recurseHTML func(*html.Node)
 	recurseHTML = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "head" {
-			script := &html.Node{
-				Type: html.ElementNode,
-				Data: "script",
-				Attr: []html.Attribute{
-					{
-						Key: "id",
-						Val: "data",
-					},
-				},
+		// Check if this is the script element with id="data"
+		if n.Type == html.ElementNode && n.Data == "script" {
+			for _, attr := range n.Attr {
+				if attr.Key == "id" && attr.Val == "data" {
+					// Found the script element, update its content
+					// Clear existing children
+					n.FirstChild = nil
+					n.LastChild = nil
+
+					// Add the data as a text node
+					n.AppendChild(&html.Node{
+						Type: html.TextNode,
+						Data: string(bytes),
+					})
+					return
+				}
 			}
-			script.AppendChild(&html.Node{
-				Type: html.TextNode,
-				Data: "const data = " + string(bytes),
-			})
-			n.AppendChild(script)
-			return
 		}
+
+		// Recursively process child nodes
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			recurseHTML(c)
 		}

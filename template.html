@@ -8,71 +8,379 @@
 	<title>Awesome Go Table</title>
 	<link rel="stylesheet"
 		href="https://cdn.jsdelivr.net/npm/slickgrid@5.13.1/dist/styles/css/slick-alpine-theme.min.css">
+	<!-- Required Sortable.js dependency -->
+	<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+	<!-- SlickGrid dependencies -->
 	<script src="https://cdn.jsdelivr.net/npm/slickgrid@5.14.0/dist/browser/slick.core.min.js"></script>
 	<script src="https://cdn.jsdelivr.net/npm/slickgrid@5.14.0/dist/browser/slick.interactions.min.js"></script>
 	<script src="https://cdn.jsdelivr.net/npm/slickgrid@5.14.0/dist/browser/slick.grid.min.js"></script>
+	<style>
+		html, body {
+			font-family: Arial, sans-serif;
+			margin: 0;
+			padding: 0;
+			height: 100%;
+			width: 100%;
+			overflow: hidden;
+		}
+		.container {
+			display: flex;
+			flex-direction: column;
+			height: 100vh;
+			width: 100%;
+		}
+		.search-container {
+			padding: 10px;
+			background-color: #f8f8f8;
+			border-bottom: 1px solid #ddd;
+			display: flex;
+			align-items: center;
+		}
+		#search-input {
+			padding: 8px 12px;
+			border: 1px solid #ccc;
+			border-radius: 4px;
+			font-size: 14px;
+			width: 300px;
+			margin-right: 10px;
+		}
+		.button {
+			padding: 8px 16px;
+			border: none;
+			border-radius: 4px;
+			cursor: pointer;
+			font-size: 14px;
+			margin-right: 10px;
+		}
+		#search-button {
+			background-color: #4285f4;
+			color: white;
+		}
+		#search-button:hover {
+			background-color: #3367d6;
+		}
+		#clear-button {
+			background-color: #f1f1f1;
+			color: #333;
+		}
+		#clear-button:hover {
+			background-color: #e1e1e1;
+		}
+		#grid {
+			flex: 1;
+			width: 100%;
+			border: none;
+		}
+		.slick-header-column {
+			cursor: pointer;
+			background-color: #f0f0f0;
+		}
+		.slick-header-column:hover {
+			background-color: #e0e0e0;
+		}
+		.slick-sort-indicator {
+			display: inline-block !important;
+		}
+		.search-info {
+			margin-left: 10px;
+			font-size: 14px;
+			color: #666;
+		}
+	</style>
+</head>
+
+<body>
+	<div class="container">
+		<div class="search-container">
+			<input type="text" id="search-input" placeholder="Search repositories..." autocomplete="off">
+			<button id="search-button" class="button">Search</button>
+			<button id="clear-button" class="button">Clear</button>
+			<span class="search-info" id="search-info"></span>
+		</div>
+		<div id="grid"></div>
+	<script id="data" type="application/json">
+		<!-- Data will be inserted here by the server -->
+	</script>
 	<script>
-		document.onreadystatechange(e => {
-			var columns = [
+		// Helper function to create HTML elements from string
+		function createHtmlElement(htmlString) {
+			const div = document.createElement('div');
+			div.innerHTML = htmlString.trim();
+			return div.firstChild;
+		}
+
+		document.addEventListener('DOMContentLoaded', function() {
+			const columns = [
 				{
 					id: "category",
 					field: "category",
 					name: "Category",
+					width: 120
 				},
 				{
 					id: "subcategory",
 					field: "subcategory",
 					name: "Subcategory",
-				},
-				{
-					id: "special_category",
-					field: "special_category",
-					name: "Special Category",
+					width: 120
 				},
 				{
 					id: "repo_name",
 					field: "repo_name",
 					name: "Name",
+					width: 150,
+					formatter: function(row, cell, value, columnDef, dataContext) {
+						return `<a href="${dataContext.url}" target="_blank">${value}</a>`;
+					}
 				},
 				{
 					id: "description",
 					field: "description",
 					name: "Description",
+					width: 300
 				},
 				{
 					id: "stars",
 					field: "stars",
 					name: "Stars",
+					width: 80,
+					cssClass: "text-right"
 				},
 				{
 					id: "last_commit",
 					field: "last_commit",
 					name: "Last Commit",
+					width: 120
 				},
 				{
 					id: "contributer_count",
 					field: "contributer_count",
 					name: "Contributors",
+					width: 100,
+					cssClass: "text-right"
 				}
-			]
+			];
 
-			let scriptElement = document.getElementById('data');
-			let repoData = JSON.parse(decodeURIComponent(atob(scriptElement.textContent).split('').map(function (c) {
-				return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-			}).join('')));
+			try {
+				// Get data from the script element
+				const scriptElement = document.getElementById('data');
+				if (!scriptElement) {
+					console.error('Data element not found');
+					return;
+				}
 
-			// const dataView = new SlickDataView({ inlineFilters: true });
-			const grid = new Slick.Grid("#grid", repoData, columns, {});
+				// Log the first part of the content for debugging
+				const contentPreview = scriptElement.textContent.substring(0, 100);
+				console.log('Script content preview:', contentPreview);
 
-			for (let i = 0; i < repoData.length; i++) {
-				repoData[i].repo_name = html(`<a href="${repoData[i].url}" target="_blank">${repoData[i].repo_name}</a>`);
+				// Parse the JSON data
+				let repoData;
+				try {
+					// Try direct JSON parsing
+					repoData = JSON.parse(scriptElement.textContent);
+					console.log('Successfully parsed JSON data');
+				} catch (e) {
+					console.error('JSON parsing error:', e);
+					// Create an empty array as fallback
+					repoData = [];
+				}
+
+				// Create grid with options
+				const options = {
+					enableCellNavigation: true,
+					enableColumnReorder: true,
+					multiColumnSort: true,
+					forceFitColumns: true,
+					rowHeight: 35,
+					headerRowHeight: 40,
+					showHeaderRow: false,
+					explicitInitialization: true,
+					enableSorting: true
+				};
+
+				// Log the data structure to help debug
+				console.log('Data structure:', repoData ? (Array.isArray(repoData) ? 'Array with ' + repoData.length + ' items' : typeof repoData) : 'null or undefined');
+
+				// Make sure repoData is an array
+				if (!repoData || !Array.isArray(repoData)) {
+					console.error('repoData is not an array:', repoData);
+					// Create an empty array if repoData is not valid
+					repoData = [];
+				}
+
+				// Store the original data for filtering
+				const originalData = [...repoData];
+
+				// Initialize the grid with proper error handling
+				try {
+					console.log('Initializing grid with', repoData.length, 'rows');
+					const grid = new Slick.Grid("#grid", repoData, columns, options);
+
+					// Initialize the grid
+					grid.init();
+
+					// Add sorting capability with improved handling
+					grid.onSort.subscribe(function(e, args) {
+						try {
+							const cols = args.sortCols;
+							console.log('Sorting by columns:', cols);
+
+							// Create a stable sort function - sort the current data view
+							currentData.sort(function(dataRow1, dataRow2) {
+								for (let i = 0; i < cols.length; i++) {
+									const field = cols[i].sortCol.field;
+									const sign = cols[i].sortAsc ? 1 : -1;
+									let value1 = dataRow1[field];
+									let value2 = dataRow2[field];
+
+									// Handle different data types appropriately
+									if (value1 === null || value1 === undefined) value1 = '';
+									if (value2 === null || value2 === undefined) value2 = '';
+
+									// Handle string comparison case-insensitively
+									if (typeof value1 === 'string' && typeof value2 === 'string') {
+										value1 = value1.toLowerCase();
+										value2 = value2.toLowerCase();
+									}
+
+									const result = (value1 == value2 ? 0 : (value1 > value2 ? 1 : -1)) * sign;
+									if (result != 0) return result;
+								}
+								return 0;
+							});
+
+							// Update the grid
+							grid.invalidate();
+							grid.render();
+						} catch (sortError) {
+							console.error('Error during sort:', sortError);
+						}
+					});
+
+					// Enable native column header click sorting
+					for (let i = 0; i < columns.length; i++) {
+						columns[i].sortable = true;
+					}
+					grid.setSortColumns([]);
+
+					// Track current sort state
+					let currentSortCol = null;
+					let currentSortAsc = true;
+
+					// Make column headers clickable for sorting
+					grid.onHeaderClick.subscribe(function(e, args) {
+						const column = args.column;
+						if (column.sortable) {
+							// Check if we're clicking the same column
+							if (currentSortCol === column.id) {
+								// Same column, toggle direction
+								currentSortAsc = !currentSortAsc;
+							} else {
+								// New column, default to ascending
+								currentSortCol = column.id;
+								currentSortAsc = true;
+							}
+
+							console.log('Sorting by', column.id, currentSortAsc ? 'ascending' : 'descending');
+
+							// Create sort columns array
+							const sortCols = [{
+								sortCol: column,
+								sortAsc: currentSortAsc
+							}];
+
+							// Update grid sort indicators
+							grid.setSortColumns(sortCols);
+							// Trigger the actual sort
+							grid.onSort.notify({ sortCols: sortCols });
+						}
+					});
+
+					// Auto-resize columns to fit content initially
+					try {
+						grid.autosizeColumns();
+					} catch (resizeError) {
+						console.error('Error auto-resizing columns:', resizeError);
+					}
+
+					// Set up search functionality
+					const searchInput = document.getElementById('search-input');
+					const searchButton = document.getElementById('search-button');
+					const clearButton = document.getElementById('clear-button');
+					const searchInfo = document.getElementById('search-info');
+
+					// Global variable to store current data view
+					let currentData = originalData;
+
+					// Function to filter data based on search query
+					function filterData(query) {
+						if (!query || query.trim() === '') {
+							// If empty query, restore original data
+							currentData = originalData;
+							grid.setData(currentData);
+							grid.invalidate();
+							grid.render();
+							searchInfo.textContent = `Showing all ${originalData.length} repositories`;
+							return;
+						}
+
+						query = query.toLowerCase().trim();
+						const filteredData = originalData.filter(item => {
+							// Search in multiple fields
+							return (
+								(item.category && item.category.toLowerCase().includes(query)) ||
+								(item.subcategory && item.subcategory.toLowerCase().includes(query)) ||
+								(item.repo_name && item.repo_name.toLowerCase().includes(query)) ||
+								(item.description && item.description.toLowerCase().includes(query))
+							);
+						});
+
+						// Update current data reference
+						currentData = filteredData;
+
+						// Update the grid with filtered data
+						grid.setData(currentData);
+						grid.invalidate();
+						grid.render();
+
+						// Update search info
+						searchInfo.textContent = `Found ${filteredData.length} of ${originalData.length} repositories`;
+					}
+
+					// Set up search button click handler
+					searchButton.addEventListener('click', function() {
+						filterData(searchInput.value);
+					});
+
+					// Set up search input enter key handler
+					searchInput.addEventListener('keypress', function(e) {
+						if (e.key === 'Enter') {
+							filterData(searchInput.value);
+						}
+					});
+
+					// Set up clear button handler
+					clearButton.addEventListener('click', function() {
+						// Clear the search input
+						searchInput.value = '';
+						// Reset the grid to show all data
+						filterData('');
+					});
+
+					// Initialize search info
+					searchInfo.textContent = `Showing all ${originalData.length} repositories`;
+
+					// Ensure grid starts with all data
+					grid.setData(originalData);
+					grid.invalidate();
+					grid.render();
+				} catch (gridError) {
+					console.error('Detailed grid initialization error:', gridError.message, gridError.stack);
+				}
+			} catch (error) {
+				console.error('Error initializing grid:', error);
 			}
-		})
+		});
 	</script>
-</head>
-
-<body>
-	<div id="grid"></div>
 </body>
 
 </html>
