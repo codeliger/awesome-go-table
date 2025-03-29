@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -497,7 +496,7 @@ func addScriptToIndex(bytes []byte) {
 			}
 			script.AppendChild(&html.Node{
 				Type: html.TextNode,
-				Data: string(bytes),
+				Data: "const data = " + string(bytes),
 			})
 			n.AppendChild(script)
 			return
@@ -616,11 +615,7 @@ func main() {
 			panic(err)
 		}
 
-		fmt.Println(string(remarshalledBytes))
-
-		base64Bytes := []byte{}
-		base64.StdEncoding.Encode(base64Bytes, remarshalledBytes)
-		addScriptToIndex(base64Bytes)
+		addScriptToIndex(remarshalledBytes)
 	}
 
 	if *testRateLimit {
