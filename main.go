@@ -114,7 +114,7 @@ func bytesToFile(bytes []byte) error {
 	return nil
 }
 
-func parseMarkdownRepos(githubToken string) ([]MarkdownRepo, error) {
+func parseMarkdownRepos() ([]MarkdownRepo, error) {
 	if !jsonFileExists() {
 		fmt.Println("File already exists")
 		return nil, nil
@@ -571,7 +571,7 @@ func main() {
 	}
 
 	if *getRepos {
-		markdownRepos, err := parseMarkdownRepos(githubToken)
+		markdownRepos, err := parseMarkdownRepos()
 		if err != nil {
 			panic(err)
 		}
