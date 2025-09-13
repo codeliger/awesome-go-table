@@ -73,17 +73,25 @@ func parseCategory(lineGroup []string, category string, subCategory string, spec
 		item := MarkdownRepo{
 			ProjectName:     string(match[1]),
 			URL:             string(match[2]),
-			Description:     string(match[6]),
+			Description:     string(match[7]),
 			Category:        category,
 			SubCategory:     subCategory,
 			SpecialCategory: specialCategory,
 		}
 
-		if string(match[3]) != "" {
+		if strings.Contains(string(match[2]), ".github.io") {
+			item.OwnerName = string(match[3])
+			repoName := strings.TrimPrefix(string(match[4]), "/")
+			if repoName != "" {
+				item.RepoName = repoName
+			} else {
+				item.RepoName = item.OwnerName + ".github.io"
+			}
+		} else if string(match[3]) != "" {
 			item.GithubPagesName = string(match[3])
 		} else {
-			item.OwnerName = string(match[4])
-			item.RepoName = string(match[5])
+			item.OwnerName = string(match[5])
+			item.RepoName = string(match[6])
 		}
 
 		items = append(items, item)
@@ -459,7 +467,7 @@ func getText(URL string) string {
 }
 
 func parseGithubsURLRegex(text string) [][][]byte {
-	reRepo := regexp.MustCompile(`\[([a-zA-Z0-9-_\/ ]+)\]\((https:\/\/(?:([a-zA-Z0-9-._]+)\.)?(?:github\.io|github\.com\/([a-zA-Z0-9-._]+)\/([a-zA-Z0-9-._]+)))\)(?: - (.+))`)
+	reRepo := regexp.MustCompile(`\[([a-zA-Z0-9-_\/ ]+)\]\((https:\/\/(?:([a-zA-Z0-9-._]+)\.)?(?:github\.io(\/[a-zA-Z0-9-._]*)?|github\.com\/([a-zA-Z0-9-._]+)\/([a-zA-Z0-9-._]+)))\)(?: - (.+))`)
 	return reRepo.FindAllSubmatch([]byte(text), -1)
 }
 
