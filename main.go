@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/go-github/v58/github"
+	"github.com/google/go-github/v76/github"
 	"github.com/joho/godotenv"
 	"golang.org/x/net/html"
 	"golang.org/x/oauth2"
