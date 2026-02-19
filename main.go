@@ -15,8 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/go-github/v76/github"
 	"github.com/joho/godotenv"
+	"github.com/shurcooL/githubv4"
 	"golang.org/x/net/html"
 	"golang.org/x/oauth2"
 )
@@ -177,7 +177,7 @@ func parseMarkdownRepos() ([]MarkdownRepo, error) {
 	return filteredRepos, nil
 }
 
-func getGithubReposFromMarkdownRepos(client *github.Client, markdownRepos []MarkdownRepo) []GithubRepo {
+func getGithubReposFromMarkdownRepos(client *githubv4.Client, markdownRepos []MarkdownRepo) []GithubRepo {
 	githubRepoWithContributors := make(chan GithubRepo, len(markdownRepos))
 
 	manageGoRoutines(client, githubRepoWithContributors, markdownRepos)
@@ -195,7 +195,7 @@ func getGithubReposFromMarkdownRepos(client *github.Client, markdownRepos []Mark
 	return githubReposWithContributers
 }
 
-func manageGoRoutines(client *github.Client, githubRepoWithContributors chan GithubRepo, markdownRepos []MarkdownRepo) {
+func manageGoRoutines(client *githubv4.Client, githubRepoWithContributors chan GithubRepo, markdownRepos []MarkdownRepo) {
 	markdownRepoChan := make(chan MarkdownRepo, len(markdownRepos))
 	githubRepoChan := make(chan GithubRepo, len(markdownRepos))
 
@@ -211,12 +211,22 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 
 	rateLimit := &atomic.Int32{}
 
-	limits, _, err := client.RateLimit.Get(context.Background())
-	if err != nil {
-		fmt.Println(err)
+	// Get initial rate limit using GraphQL
+	var rateLimitQuery struct {
+		RateLimit struct {
+			Cost      int
+			Remaining int
+			ResetAt   githubv4.DateTime
+		}
 	}
 
-	rateLimit.Store(int32(limits.Core.Remaining))
+	err := client.Query(context.Background(), &rateLimitQuery, nil)
+	if err != nil {
+		fmt.Println("Error getting initial rate limit:", err)
+		rateLimit.Store(5000) // Default to a high value if we can't fetch
+	} else {
+		rateLimit.Store(int32(rateLimitQuery.RateLimit.Remaining))
+	}
 	fmt.Println("initial rate limit", rateLimit.Load())
 
 	wg := sync.WaitGroup{}
@@ -243,29 +253,30 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 			fmt.Printf("waiting for all tasks to finish %d/%d\n", len(githubRepoWithContributors), len(markdownRepos))
 
 			fmt.Println("fetching ratelimit")
-			limits, _, err := client.RateLimit.Get(context.Background())
-			if err != nil {
-				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
-					fmt.Println("rate limit reached while fetching ratelimits sleeping until reset time", time.Until(rateLimitErr.Rate.Reset.Time).Seconds())
-					time.Sleep(time.Until(rateLimitErr.Rate.Reset.Time))
-				} else {
-					fmt.Println("unknown error when retrieving ratelimits sleeping 5 second", err)
-					time.Sleep(5 * time.Second)
+			var rateLimitCheckQuery struct {
+				RateLimit struct {
+					Cost      int
+					Remaining int
+					ResetAt   githubv4.DateTime
 				}
+			}
+
+			err := client.Query(context.Background(), &rateLimitCheckQuery, nil)
+			if err != nil {
+				fmt.Println("unknown error when retrieving ratelimits sleeping 5 second", err)
+				time.Sleep(5 * time.Second)
 				continue
 			} else {
-				fmt.Printf("core: total_limit: %d; expected_limit: %d; remaining_limit: %d; resets in %f seconds\n",
-					limits.Core.Limit,
-					rateLimit.Load(),
-					limits.Core.Remaining,
-					time.Until(limits.Core.Reset.Time).Seconds())
+				fmt.Printf("rate limit: remaining: %d; resets in %f seconds\n",
+					rateLimitCheckQuery.RateLimit.Remaining,
+					time.Until(rateLimitCheckQuery.RateLimit.ResetAt.Time).Seconds())
 				fmt.Println("storing real rate limit")
-				rateLimit.Store(int32(limits.Core.Remaining))
+				rateLimit.Store(int32(rateLimitCheckQuery.RateLimit.Remaining))
 			}
 
 			if rateLimit.Load() < 1 {
-				fmt.Println("rate limit reached, sleeping for", time.Until(limits.Core.Reset.Time).Seconds())
-				time.Sleep(time.Until(limits.Core.Reset.Time) + (time.Second * 5))
+				fmt.Println("rate limit reached, sleeping for 60 seconds")
+				time.Sleep(60 * time.Second)
 			}
 		}
 
@@ -274,16 +285,15 @@ func manageGoRoutines(client *github.Client, githubRepoWithContributors chan Git
 	}
 }
 
-func getClient(authToken string) *github.Client {
-	ctx := context.Background()
-	ts := oauth2.StaticTokenSource(
+func getClient(authToken string) *githubv4.Client {
+	src := oauth2.StaticTokenSource(
 		&oauth2.Token{AccessToken: authToken},
 	)
-	tc := oauth2.NewClient(ctx, ts)
-	return github.NewClient(tc)
+	httpClient := oauth2.NewClient(context.Background(), src)
+	return githubv4.NewClient(httpClient)
 }
 
-func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *sync.WaitGroup, markdownRepoChan chan MarkdownRepo, githubRepoChan chan GithubRepo) {
+func getRepoDataFromGithub(client *githubv4.Client, rateLimit *atomic.Int32, wg *sync.WaitGroup, markdownRepoChan chan MarkdownRepo, githubRepoChan chan GithubRepo) {
 	for {
 		for rateLimit.Load()-1 < 1 {
 			fmt.Println("GithubRepo: waiting for rate limit to reset", rateLimit.Load())
@@ -301,31 +311,34 @@ func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *s
 
 			rateLimit.Add(-1)
 
-			repo, _, err := client.Repositories.Get(context.Background(), markdownRepo.OwnerName, markdownRepo.RepoName)
+			// Create GraphQL query for repository data
+			var query struct {
+				Repository struct {
+					Name           string
+					Description    string
+					StargazerCount int
+					WatcherCount   int
+					ForkCount      int
+					CreatedAt      githubv4.DateTime
+					UpdatedAt      githubv4.DateTime
+					PushedAt       githubv4.DateTime
+					OpenIssues     struct {
+						TotalCount int
+					}
+					LicenseInfo struct {
+						Name string
+					}
+					IsArchived bool
+				} `graphql:"repository(owner:$owner, name:$name)"`
+			}
+
+			variables := map[string]interface{}{
+				"owner": githubv4.String(markdownRepo.OwnerName),
+				"name":  githubv4.String(markdownRepo.RepoName),
+			}
+
+			err := client.Query(context.Background(), &query, variables)
 			if err != nil {
-				if strings.Contains(err.Error(), "secondary") {
-					fmt.Println("secondary rate limit reached, sleeping for 3 seconds")
-					time.Sleep(3 * time.Second)
-
-					select {
-					case markdownRepoChan <- markdownRepo:
-					default:
-						fmt.Println("markdownRepoChan is closed")
-					}
-					continue
-				}
-				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
-					fmt.Println("repo function returned ratelimit error")
-					rateLimit.Store(int32(rateLimitErr.Rate.Remaining))
-
-					select {
-					case markdownRepoChan <- markdownRepo:
-					default:
-						fmt.Println("markdownRepoChan is closed")
-					}
-					continue
-				}
-
 				fmt.Println("error when getting repo", err)
 				select {
 				case githubRepoChan <- GithubRepo{
@@ -340,15 +353,15 @@ func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *s
 
 			githubRepo := GithubRepo{
 				MarkdownRepo: markdownRepo,
-				Stars:        repo.GetStargazersCount(),
-				LastCommit:   repo.GetUpdatedAt().Time,
-				Watchers:     repo.GetWatchersCount(),
-				Forks:        repo.GetForksCount(),
-				CreatedAt:    repo.GetCreatedAt().Time,
-				PushedAt:     repo.GetPushedAt().Time,
-				OpenIssues:   repo.GetOpenIssuesCount(),
-				License:      repo.GetLicense().GetName(),
-				Archived:     repo.GetArchived(),
+				Stars:        query.Repository.StargazerCount,
+				LastCommit:   query.Repository.UpdatedAt.Time,
+				Watchers:     query.Repository.WatcherCount,
+				Forks:        query.Repository.ForkCount,
+				CreatedAt:    query.Repository.CreatedAt.Time,
+				PushedAt:     query.Repository.PushedAt.Time,
+				OpenIssues:   query.Repository.OpenIssues.TotalCount,
+				License:      query.Repository.LicenseInfo.Name,
+				Archived:     query.Repository.IsArchived,
 			}
 
 			select {
@@ -365,7 +378,7 @@ func getRepoDataFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *s
 	}
 }
 
-func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, wg *sync.WaitGroup, githubRepoChan chan GithubRepo, githubRepoWithContributorsChan chan GithubRepo, markdownRepoChan chan MarkdownRepo) {
+func getContributorsFromGithub(client *githubv4.Client, rateLimit *atomic.Int32, wg *sync.WaitGroup, githubRepoChan chan GithubRepo, githubRepoWithContributorsChan chan GithubRepo, markdownRepoChan chan MarkdownRepo) {
 	for {
 		for rateLimit.Load()-1 < 1 {
 			fmt.Println("RepoContributors: waiting for rate limit to reset", rateLimit.Load())
@@ -393,31 +406,28 @@ func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, w
 
 			rateLimit.Add(-1)
 
-			contributers, _, err := client.Repositories.ListContributors(context.Background(), githubRepo.OwnerName, githubRepo.RepoName, nil)
+			// Create GraphQL query for contributors data
+			var contribQuery struct {
+				Repository struct {
+					Contributors struct {
+						Nodes []struct {
+							Login         string
+							Contributions struct {
+								TotalCount int
+							}
+						}
+						TotalCount int
+					} `graphql:"contributors(first:100)"`
+				} `graphql:"repository(owner:$owner, name:$name)"`
+			}
+
+			variables := map[string]interface{}{
+				"owner": githubv4.String(githubRepo.OwnerName),
+				"name":  githubv4.String(githubRepo.RepoName),
+			}
+
+			err := client.Query(context.Background(), &contribQuery, variables)
 			if err != nil {
-				if strings.Contains(err.Error(), "secondary") {
-					fmt.Println("secondary rate limit reached, sleeping for 3 seconds")
-					time.Sleep(3 * time.Second)
-
-					select {
-					case githubRepoChan <- githubRepo:
-					default:
-						fmt.Println("githubRepoChan is closed")
-					}
-					continue
-				}
-
-				if rateLimitErr, ok := err.(*github.RateLimitError); ok {
-					fmt.Println("contrib function returned ratelimit error")
-					rateLimit.Store(int32(rateLimitErr.Rate.Remaining))
-					select {
-					case githubRepoChan <- githubRepo:
-					default:
-						fmt.Println("githubRepoChan is closed")
-					}
-					continue
-				}
-
 				fmt.Println("error when getting contributers", err)
 				githubRepo.Error = err
 				select {
@@ -430,11 +440,11 @@ func getContributorsFromGithub(client *github.Client, rateLimit *atomic.Int32, w
 
 			contributerMap := map[string]int{}
 
-			for _, contributer := range contributers {
-				contributerMap[*contributer.Login] = *contributer.Contributions
+			for _, contributer := range contribQuery.Repository.Contributors.Nodes {
+				contributerMap[contributer.Login] = contributer.Contributions.TotalCount
 			}
 
-			githubRepo.ContributerCount = len(contributers)
+			githubRepo.ContributerCount = contribQuery.Repository.Contributors.TotalCount
 			githubRepo.Contributers = contributerMap
 			select {
 			case githubRepoWithContributorsChan <- githubRepo:
@@ -482,7 +492,7 @@ func addScriptToIndex(bytes []byte) {
 	if err != nil {
 		panic(err)
 	}
-	defer f2.Close() // Fixed: was using f.Close() again instead of f2.Close()
+	defer f2.Close()
 
 	doc, err := html.Parse(f)
 	if err != nil {
@@ -631,13 +641,23 @@ func main() {
 
 	if *testRateLimit {
 		client := getClient(githubToken)
-		limits, resp, err := client.RateLimit.Get(context.Background())
+		var rateLimitQuery struct {
+			RateLimit struct {
+				Cost      int
+				Remaining int
+				ResetAt   githubv4.DateTime
+			}
+		}
+
+		err := client.Query(context.Background(), &rateLimitQuery, nil)
 		if err != nil {
 			fmt.Println(err)
 		}
 
-		fmt.Println(limits)
-		fmt.Println(resp)
+		fmt.Printf("Rate limit: cost=%d, remaining=%d, reset_at=%s\n",
+			rateLimitQuery.RateLimit.Cost,
+			rateLimitQuery.RateLimit.Remaining,
+			rateLimitQuery.RateLimit.ResetAt)
 		fmt.Println(err)
 	}
 }
