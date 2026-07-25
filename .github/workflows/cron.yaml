@@ -15,7 +15,7 @@ jobs:
       uses: actions/setup-go@v7
       with:
         go-version: 1.26
-    - run: go run main.go --update
+    - run: go run ./ --update
 
     - name: Create file name
       run: echo "json=$(date +%Y-%m-%d).json" >> $GITHUB_ENV
